@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<title>ADAPT-X — Threat Dashboard</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+  :root {
+    --bg: #0b0e14; --panel: #121722; --border: #232a38;
+    --text: #e6e9ef; --muted: #8b93a7;
+    --critical: #ff4d4f; --high: #ff9f43; --medium: #f9d949; --low: #4dd07a;
+    --accent: #5b8cff;
+  }
+  * { box-sizing: border-box; }
+  body {
+    background: var(--bg); color: var(--text);
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    margin: 0; padding: 24px;
+  }
+  h1 { font-size: 22px; margin-bottom: 2px; }
+  .subtitle { color: var(--muted); font-size: 13px; margin-bottom: 20px; }
+  .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 24px; }
+  .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 16px; }
+  .panel h3 { margin: 0 0 10px; font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { padding: 8px 10px; text-align: left; border-bottom: 1px solid var(--border); }
+  th { color: var(--muted); cursor: pointer; user-select: none; font-weight: 600; }
+  th:hover { color: var(--accent); }
+  tr:hover { background: rgba(255,255,255,0.03); }
+  .badge { padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; }
+  .Critical { background: rgba(255,77,79,0.15); color: var(--critical); }
+  .High { background: rgba(255,159,67,0.15); color: var(--high); }
+  .Medium { background: rgba(249,217,73,0.15); color: var(--medium); }
+  .Low { background: rgba(77,208,122,0.15); color: var(--low); }
+  .stat { font-size: 26px; font-weight: 700; }
+  canvas { max-height: 220px; }
+  .top-stats { display: flex; gap: 16px; margin-bottom: 20px; }
+  .top-stats .panel { flex: 1; text-align: center; }
+</style>
+</head>
+<body>
+
+<h1>🛡️ ADAPT-X — Attacker Profiling &amp; Threat Prediction</h1>
+<div class="subtitle">Autonomous Attacker Digital Profiling &amp; Threat Prediction Engine — {{ total }} attackers profiled from session telemetry</div>
+
+<div class="top-stats">
+  <div class="panel"><div class="stat">{{ total }}</div><div>Attaquants profilés</div></div>
+  <div class="panel"><div class="stat" style="color:var(--critical)">{{ risk_counts.get('Critical', 0) }}</div><div>Risque Critique</div></div>
+  <div class="panel"><div class="stat" style="color:var(--high)">{{ risk_counts.get('High', 0) }}</div><div>Risque Élevé</div></div>
+</div>
+
+<div class="grid">
+  <div class="panel">
+    <h3>Archétypes comportementaux</h3>
+    <canvas id="archetypeChart"></canvas>
+  </div>
+  <div class="panel">
+    <h3>Niveaux de risque</h3>
+    <canvas id="riskChart"></canvas>
+  </div>
+  <div class="panel">
+    <h3>Étape actuelle (Kill Chain)</h3>
+    <canvas id="stageChart"></canvas>
+  </div>
+</div>
+
+<div class="panel">
+  <h3>Profils d'attaquants (triable — cliquez sur les colonnes)</h3>
+  <table id="reportTable">
+    <thead>
+      <tr>
+        <th data-key="src_ip">IP Source</th>
+        <th data-key="archetype">Archétype</th>
+        <th data-key="risk_score">Score de risque</th>
+        <th data-key="risk_level">Niveau</th>
+        <th data-key="current_stage">Étape actuelle</th>
+        <th data-key="predicted_next_stage">Prochaine étape prédite</th>
+        <th data-key="predicted_next_stage_prob">Confiance</th>
+        <th data-key="n_sessions">Sessions</th>
+        <th data-key="n_events">Événements</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in records %}
+      <tr>
+        <td>{{ r.src_ip }}</td>
+        <td>{{ r.archetype }}</td>
+        <td>{{ "%.1f"|format(r.risk_score) }}</td>
+        <td><span class="badge {{ r.risk_level }}">{{ r.risk_level }}</span></td>
+        <td>{{ r.current_stage }}</td>
+        <td>{{ r.predicted_next_stage }}</td>
+        <td>{{ "%.0f"|format(r.predicted_next_stage_prob * 100) }}%</td>
+        <td>{{ r.n_sessions }}</td>
+        <td>{{ r.n_events }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<script>
+const archetypeData = {{ archetype_counts | tojson }};
+const riskData = {{ risk_counts | tojson }};
+const stageData = {{ stage_counts | tojson }};
+
+function makeChart(id, dataObj, colors) {
+  new Chart(document.getElementById(id), {
+    type: 'doughnut',
+    data: {
+      labels: Object.keys(dataObj),
+      datasets: [{ data: Object.values(dataObj), backgroundColor: colors, borderWidth: 0 }]
+    },
+    options: { plugins: { legend: { labels: { color: '#e6e9ef', font: { size: 11 } } } } }
+  });
+}
+
+makeChart('archetypeChart', archetypeData, ['#5b8cff', '#f9d949', '#ff4d4f']);
+makeChart('riskChart', riskData, ['#ff4d4f', '#ff9f43', '#f9d949', '#4dd07a']);
+makeChart('stageChart', stageData, ['#5b8cff', '#4dd07a', '#f9d949', '#ff9f43', '#a86bff', '#ff4d4f']);
+
+// simple client-side table sort
+document.querySelectorAll('#reportTable th').forEach((th, idx) => {
+  th.addEventListener('click', () => {
+    const table = document.getElementById('reportTable').querySelector('tbody');
+    const rows = Array.from(table.querySelectorAll('tr'));
+    const asc = th.dataset.asc = th.dataset.asc === '1' ? '0' : '1';
+    rows.sort((a, b) => {
+      const av = a.children[idx].innerText, bv = b.children[idx].innerText;
+      const an = parseFloat(av), bn = parseFloat(bv);
+      const cmp = (!isNaN(an) && !isNaN(bn)) ? an - bn : av.localeCompare(bv);
+      return asc === '1' ? cmp : -cmp;
+    });
+    rows.forEach(r => table.appendChild(r));
+  });
+});
+</script>
+
+</body>
+</html>
