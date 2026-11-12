@@ -1,0 +1,55 @@
+﻿
+# Python cache
+__pycache__/
+*.py[cod]
+*.pyo
+.ipynb_checkpoints/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Testing and coverage
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Generated reports
+outputs/*
+!outputs/.gitkeep
+outputs_*/
+reports/
+
+# Datasets and raw logs
+datasets/
+data/
+*.jsonl
+*.parquet
+*.sqlite3
+*.db
+
+# Local model files
+*.pkl
+*.pickle
+*.joblib
+*.model
+
+# Secrets
+.env
+.env.*
+!.env.example
+
+# Local backups and drafts
+*_backup.py
+README1.md
+README_for_review.txt
+project_structure.txt
+
+# IDE and OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

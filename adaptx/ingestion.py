@@ -7,12 +7,7 @@ Loads attacker session data into a common pandas DataFrame schema:
 
 Two sources are supported:
   1. Synthetic data from data_generator.py (for demo/testing)
-  2. Real Cowrie honeypot JSON logs (newline-delimited JSON), commonly
-     produced by the open-source Cowrie SSH/Telnet honeypot.
-
-Only log *parsing* is implemented here -- this module never issues
-network requests or executes commands; it strictly reads text/JSON
-already collected by a honeypot or SIEM export.
+  2. Real Cowrie honeypot JSON logs (newline-delimited JSON), or remote URLs from internet.
 """
 
 from __future__ import annotations
@@ -20,6 +15,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 from typing import Iterable
+import io
+import requests
 
 import pandas as pd
 
@@ -36,18 +33,6 @@ def load_synthetic(n_sessions: int = 150, seed: int | None = 42) -> pd.DataFrame
 
 
 def load_cowrie_jsonl(path: str | Path) -> pd.DataFrame:
-    """
-    Parse a Cowrie-style newline-delimited JSON log file.
-
-    Expected (simplified) Cowrie event shape, one JSON object per line:
-        {"eventid": "cowrie.command.input", "session": "abc123",
-         "src_ip": "203.0.113.7", "timestamp": "2026-01-01T00:00:03.123Z",
-         "input": "whoami"}
-        {"eventid": "cowrie.login.success", "session": "abc123", ...}
-
-    Only command-input events are used to build the behavioral sequence;
-    login/session events are used to enrich src_ip/session metadata.
-    """
     path = Path(path)
     rows = []
     session_ip = {}
@@ -75,7 +60,7 @@ def load_cowrie_jsonl(path: str | Path) -> pd.DataFrame:
                     "src_ip": session_ip.get(sess_id, ev.get("src_ip", "unknown")),
                     "ts": ev.get("timestamp"),
                     "command": command,
-                    "success": True,  # cowrie logs the command as executed in the shell jail
+                    "success": True,
                 })
 
     df = pd.DataFrame(rows)
@@ -86,8 +71,59 @@ def load_cowrie_jsonl(path: str | Path) -> pd.DataFrame:
     return df
 
 
+def load_from_url(url: str) -> pd.DataFrame:
+    """
+    Download and parse remote dataset logs (JSONL or CSV) directly from the internet.
+    """
+    response = requests.get(url)
+    response.raise_for_status()
+    if url.endswith(".csv"):
+        df = pd.read_csv(io.StringIO(response.text))
+        df["ts"] = pd.to_datetime(df["ts"], errors="coerce")
+        if "stage" not in df.columns and "command" in df.columns:
+            df["stage"] = df["command"].apply(tag_stage)
+        return df
+    else:
+        # Parse remote newline-delimited JSON (Cowrie format style)
+        rows = []
+        session_ip = {}
+        for line in response.text.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                ev = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+
+            sess_id = ev.get("session", "unknown")
+            if ev.get("src_ip"):
+                session_ip[sess_id] = ev["src_ip"]
+
+            if ev.get("eventid") == "cowrie.command.input":
+                command = ev.get("input", "").strip()
+                if not command:
+                    continue
+                rows.append({
+                    "session_id": sess_id,
+                    "src_ip": session_ip.get(sess_id, ev.get("src_ip", "unknown")),
+                    "ts": ev.get("timestamp"),
+                    "command": command,
+                    "success": True,
+                })
+
+        df = pd.DataFrame(rows)
+        if df.empty:
+            return df
+        df["ts"] = pd.to_datetime(df["ts"], errors="coerce")
+        df["stage"] = df["command"].apply(tag_stage)
+        return df
+
+
 def load(source: str = "synthetic", **kwargs) -> pd.DataFrame:
-    """Unified entry point. source = 'synthetic' or a path to a cowrie .jsonl file."""
+    """Unified entry point. source = 'synthetic', a web URL (http/https), or local file path."""
     if source == "synthetic":
         return load_synthetic(**kwargs)
+    elif source.startswith("http://") or source.startswith("https://"):
+        return load_from_url(source)
     return load_cowrie_jsonl(source)

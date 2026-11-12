@@ -1,137 +1,384 @@
-# ADAPT-X — Autonomous Attacker Digital Profiling & Threat Prediction Engine
+# ADAPT-X
+### Autonomous Attacker Digital Profiling & Threat Prediction Engine
 
-**ADAPT-X** est un moteur d'analyse défensive (blue team / threat intelligence) qui transforme des logs bruts d'attaquants (honeypot, IDS) en :
+ADAPT-X is a cybersecurity project focused on analyzing attacker behavior using honeypot data, behavioral analysis, and machine learning techniques.
 
-1. **Profils comportementaux** (archétypes d'attaquants)
-2. **Position sur la Cyber Kill Chain / MITRE ATT&CK**
-3. **Prédiction de la prochaine étape probable** de l'attaque
-4. **Score de risque composite** (0–100) pour la priorisation SOC
+The main idea is to go beyond simply collecting attacker commands and events. I want to understand the behavior behind them: what an attacker is doing, how their activity evolves, which attack stages they reach, and what they might attempt next.
 
-> ⚠️ **Portée du projet** : ADAPT-X est un outil d'**analyse défensive**. Il ingère et classe des logs déjà collectés par un honeypot/IDS — il ne scanne, n'exploite, ni n'attaque aucune cible. Les données de démonstration sont **entièrement synthétiques**.
+The current version is an initial prototype that brings together data processing, behavioral profiling, attack-stage classification, risk scoring, and an experimental prediction component.
 
----
-
-## Architecture
-
-```
-┌─────────────────┐   ┌──────────────────┐   ┌──────────────────────┐
-│   Ingestion      │──▶│ Feature           │──▶│ Profiling (KMeans)    │
-│ (synthetic /     │   │ Engineering       │   │ → archétype           │
-│  Cowrie JSONL)   │   │ (tempo, entropie, │   │  (Bot / Script Kiddie │
-│                  │   │  succès, stages)  │   │   / Skilled Operator) │
-└─────────────────┘   └──────────────────┘   └──────────┬────────────┘
-                                                          │
-                       ┌──────────────────┐               ▼
-                       │ Kill-Chain Tagging│   ┌──────────────────────┐
-                       │ (règles + MITRE   │──▶│  Risk Scoring         │
-                       │  ATT&CK mapping)  │   │  (score composite)    │
-                       └────────┬─────────┘   └──────────┬────────────┘
-                                │                          │
-                                ▼                          ▼
-                       ┌──────────────────┐      ┌──────────────────┐
-                       │ Markov Predictor  │      │ Dashboard Flask   │
-                       │ (prochaine étape) │─────▶│ (table + charts)  │
-                       └──────────────────┘      └──────────────────┘
-```
-
-### Modules
-
-| Fichier | Rôle |
-|---|---|
-| `adaptx/data_generator.py` | Génère des sessions d'attaquants synthétiques réalistes (3 archétypes) |
-| `adaptx/ingestion.py` | Charge les données synthétiques ou des logs Cowrie honeypot réels (JSONL) |
-| `adaptx/killchain.py` | Classifie chaque commande observée en étape Kill Chain / tactique MITRE ATT&CK ; chaîne de Markov pour prédire la prochaine étape |
-| `adaptx/features.py` | Extrait l'empreinte comportementale par IP (tempo, entropie, diversité, succès) |
-| `adaptx/profiling.py` | Clustering KMeans → archétype d'attaquant explicable |
-| `adaptx/risk.py` | Score de risque composite pondéré et transparent |
-| `adaptx/pipeline.py` | Orchestration complète + CLI |
-| `dashboard/app.py` | Dashboard Flask interactif |
-| `tests/test_pipeline.py` | Suite de tests unitaires (pytest) |
+This is an evolving project, and the current implementation is only the starting point.
 
 ---
 
-## Installation
+## Why I Started ADAPT-X
+
+ADAPT-X originally started as a mini-project during my first year of Master's studies. I wanted to explore the intersection of cybersecurity and machine learning, with a particular interest in understanding attacker behavior through honeypot data.
+
+The initial version gave me an opportunity to experiment with the idea and build a first implementation. Later, I decided to come back to it, revisit the original work, improve the code structure, make some changes, and add features such as Docker support.
+
+I eventually decided to publish it on GitHub because I see more potential in this idea than what the initial mini-project could cover.
+
+I don't want to treat ADAPT-X as a finished project. I want to keep developing it, experiment with different approaches, work with larger datasets, and gradually turn it into something more advanced.
+
+For now, I am focusing on building a solid foundation and understanding the strengths and limitations of each component before moving towards a more ambitious architecture.
+
+---
+
+## How ADAPT-X Works
+
+The current prototype follows a pipeline that transforms raw attacker activity into structured behavioral information.
+
+### 1. Data Collection and Ingestion
+
+The system starts by loading attacker activity from different sources.
+
+Current supported sources include:
+
+- Synthetic attacker sessions generated by the project.
+- Local Cowrie JSONL honeypot logs.
+- Remote JSONL and CSV sources through a URL.
+
+The purpose of this stage is to bring the collected activity into a common format so that the following components can process it.
+
+### 2. Behavioral Feature Extraction
+
+Raw events do not always provide a clear picture of an attacker's behavior.
+
+ADAPT-X extracts features that help describe how an attacker operates, including:
+
+- Number of events and sessions.
+- Average time between commands.
+- Variation in command execution intervals.
+- Unique command ratio.
+- Command entropy.
+- Command success rate.
+- Kill Chain stage diversity.
+- Furthest attack stage reached.
+- Total activity duration.
+
+These features form a behavioral representation of each attacker.
+
+### 3. Attacker Profiling
+
+The current implementation uses **K-Means clustering** to group attackers according to their behavioral features.
+
+The initial version uses three human-readable behavioral labels:
+
+- **Automated Bot:** activity with relatively repetitive and limited behavior.
+- **Script Kiddie:** activity showing a broader range of commands and attack stages.
+- **Skilled Operator:** activity reaching deeper attack stages with more diverse behavior.
+
+These labels are assigned using simple rules based on cluster characteristics. They are experimental interpretations, not verified classifications of real attackers.
+
+### 4. Cyber Kill Chain Mapping
+
+ADAPT-X includes a rule-based command classification component that maps observed commands to six simplified Cyber Kill Chain stages:
+
+1. Reconnaissance
+2. Delivery
+3. Exploitation
+4. Installation
+5. Command and Control
+6. Actions on Objectives
+
+The implementation also includes approximate references to related MITRE ATT&CK tactics.
+
+This helps provide context about the possible stage of an attack based on the commands observed.
+
+### 5. Next Attack Stage Prediction
+
+One of the main ideas behind ADAPT-X is to explore whether attacker behavior can provide useful clues about what might happen next.
+
+For the current prototype, I implemented a **first-order Markov chain** to analyze transitions between Kill Chain stages and estimate possible next stages.
+
+This is an experimental baseline. Its predictions are estimates based on observed transitions, not guaranteed predictions of future attacker activity.
+
+### 6. Risk Scoring
+
+The system calculates a heuristic risk score between 0 and 100 for each attacker.
+
+The current scoring approach combines five factors:
+
+| Factor | Weight |
+|---|---:|
+| Kill Chain progress | 40% |
+| Behavioral archetype severity | 25% |
+| Stage diversity | 15% |
+| Repeated sessions | 10% |
+| Command success rate | 10% |
+
+The resulting score is categorized into four levels:
+
+- Low
+- Medium
+- High
+- Critical
+
+I chose a weighted formula for the initial version because it is simple to understand and makes the contribution of each factor visible.
+
+The score is intended for experimental prioritization. It is not a calibrated probability of compromise or a definitive measurement of threat severity.
+
+### 7. Analysis Dashboard
+
+A Flask-based web dashboard presents the results of the analysis.
+
+It currently includes:
+
+- Total number of profiled attackers.
+- Critical and high-risk statistics.
+- Behavioral archetype distribution.
+- Risk-level distribution.
+- Kill Chain stage distribution.
+- A sortable table containing attacker profiles.
+- Current and predicted next attack stages.
+- Estimated prediction probabilities.
+
+The dashboard is intended to make the analysis easier to inspect without having to read raw logs or command-line output.
+
+---
+
+## What I Want ADAPT-X to Become
+
+The current pipeline is a starting point. My longer-term goal is to develop ADAPT-X into a more autonomous, agent-based defensive threat analysis system.
+
+I don't want the final idea to be limited to a tool that receives logs, runs a few models, and generates a report. I want to explore an architecture where an intelligent agent can coordinate different analysis components, maintain context, investigate suspicious behavior, and help an analyst understand what is happening.
+
+### The Agent-Based Vision
+
+In a future version, I would like ADAPT-X to have an AI Agent capable of handling a larger part of the threat analysis workflow.
+
+The idea is to build an agent that could:
+
+**1. Collect and Understand Activity**
+
+- Process incoming honeypot and security telemetry.
+- Organize events into attacker sessions.
+- Maintain behavioral context across multiple observations.
+
+**2. Build and Update Attacker Profiles**
+
+- Analyze command patterns and activity over time.
+- Identify similarities between different attackers.
+- Update behavioral profiles when new evidence becomes available.
+- Track changes in an attacker's behavior.
+
+**3. Investigate Attack Behavior**
+
+- Follow the progression of observed attack stages.
+- Correlate events from different sessions.
+- Identify unusual or suspicious patterns.
+- Use available analysis tools to investigate activity in more detail.
+
+**4. Predict and Reason About Possible Actions**
+
+- Estimate possible next attack stages.
+- Compare different behavioral patterns.
+- Combine evidence from multiple analysis components.
+- Explain why a particular activity or attacker profile is considered suspicious.
+
+**5. Assist with Defensive Decisions**
+
+- Generate detailed investigation reports.
+- Suggest relevant defensive actions.
+- Prioritize suspicious activity.
+- Provide explanations that help security analysts make informed decisions.
+
+### Beyond a Single Model
+
+I am also interested in exploring how different models and specialized components could work together under the coordination of an agent.
+
+For example, ADAPT-X could eventually combine:
+
+- Behavioral machine learning models.
+- Sequence-based prediction models.
+- Threat intelligence information.
+- MITRE ATT&CK knowledge.
+- An agent responsible for coordinating analysis tasks and using available tools.
+
+The objective is not simply to add an AI chatbot to the dashboard. It is to explore an agent that can perform structured, multi-step defensive analysis while keeping important decisions under human supervision.
+
+This architecture is a future direction, not something implemented in the current prototype.
+
+---
+
+## Current Development Status
+
+ADAPT-X is currently a **work in progress**.
+
+The first prototype already includes:
+
+- Synthetic attacker data generation.
+- Data ingestion components.
+- Behavioral feature extraction.
+- K-Means-based attacker profiling.
+- Rule-based Cyber Kill Chain mapping.
+- Experimental Markov-based next-stage prediction.
+- Heuristic risk scoring.
+- Flask dashboard.
+- Docker support.
+- Initial automated tests.
+
+There is still a lot of work to do, especially in improving real-world data processing, validating the models, and evaluating the quality of the predictions.
+
+## Future Development
+
+Some of the areas I would like to work on next include:
+
+- Testing with larger and more realistic honeypot datasets.
+- Improving attacker identification and session correlation.
+- Refining behavioral features and clustering.
+- Evaluating prediction models with proper metrics.
+- Improving the risk-scoring methodology.
+- Expanding MITRE ATT&CK mapping.
+- Exploring more advanced machine learning approaches.
+- Designing and implementing the agent-based architecture.
+- Adding controlled tool usage and human approval for defensive actions.
+
+I prefer to build these improvements gradually, starting with a reliable baseline before introducing more complex components.
+
+---
+
+## Technology Stack
+
+- **Python** — Main development language.
+- **Pandas & NumPy** — Data processing and analysis.
+- **Scikit-learn** — Feature scaling and K-Means clustering.
+- **Flask** — Web dashboard.
+- **Chart.js** — Dashboard visualizations.
+- **Markov Chain** — Experimental stage-transition prediction.
+- **Docker** — Containerization.
+- **Pytest** — Automated testing.
+
+## Project Structure
+
+```text
+ADAPT-X/
+│
+├── adaptx/
+│   ├── __init__.py
+│   ├── data_generator.py
+│   ├── ingestion.py
+│   ├── features.py
+│   ├── killchain.py
+│   ├── profiling.py
+│   ├── risk.py
+│   └── pipeline.py
+│
+├── dashboard/
+│   ├── app.py
+│   └── templates/
+│       └── index.html
+│
+├── tests/
+│   └── test_pipeline.py
+│
+├── outputs/
+│   └── .gitkeep
+│
+├── Dockerfile
+├── .dockerignore
+├── .gitignore
+├── requirements.txt
+└── README.md
+```
+
+## Getting Started
+
+### Requirements
+
+- Python 3.11 or later
+- pip
+- Git
+- Docker (optional)
+
+### Installation
+
+Clone the repository:
 
 ```bash
-cd ADAPT-X
-python3 -m venv venv && source venv/bin/activate   # optionnel
+git clone https://github.com/hanako-exe963/adapt-x.git
+cd adapt-x
+```
+
+Create and activate a virtual environment.
+
+**Windows PowerShell:**
+
+```powershell
+python -m venv .venv
+.venv\Scripts\Activate.ps1
+```
+
+**Linux:**
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+```
+
+Install dependencies:
+
+```bash
 pip install -r requirements.txt
 ```
 
-## Utilisation — CLI
+### Run the Analysis Pipeline
+
+Start with synthetic data:
 
 ```bash
-# Pipeline complet sur données synthétiques (150 sessions par défaut)
-python3 -m adaptx.pipeline --n-sessions 200 --clusters 3 --out outputs
-
-# Sur un vrai log Cowrie (honeypot SSH/Telnet)
-python3 -m adaptx.pipeline --source /chemin/vers/cowrie.jsonl
+python -m adaptx.pipeline --n-sessions 200 --clusters 3 --out outputs
 ```
 
-Cela produit :
-- `outputs/adaptx_report.csv`
-- `outputs/adaptx_report.json`
-- Un résumé des attaquants les plus critiques imprimé dans le terminal
-
-## Utilisation — Dashboard
+To use a local Cowrie JSONL file:
 
 ```bash
-python3 dashboard/app.py
-# puis ouvrir http://127.0.0.1:5000
+python -m adaptx.pipeline --source path/to/cowrie.jsonl --clusters 3 --out outputs
 ```
 
-Le dashboard affiche :
-- Répartition des archétypes (camembert)
-- Répartition des niveaux de risque
-- Répartition par étape actuelle de la kill chain
-- Tableau triable de tous les attaquants profilés avec leur score, niveau de risque et prochaine étape prédite
-
-## Tests
+### Run the Dashboard
 
 ```bash
-pytest tests/ -v
+python dashboard/app.py
+```
+
+Open:
+
+```text
+http://127.0.0.1:5000
+```
+
+### Run with Docker
+
+Build the image:
+
+```bash
+docker build -t adapt-x .
+```
+
+Run the container:
+
+```bash
+docker run --rm -p 5000:5000 --name adapt-x adapt-x
+```
+
+Then open `http://127.0.0.1:5000`.
+
+### Run Tests
+
+```bash
+python -m pytest tests/ -v
 ```
 
 ---
 
-## Détails méthodologiques
+## A Final Note
 
-### 1. Archétypes comportementaux
-Trois profils simulés (et retrouvés par le clustering, sans supervision) :
-- **Automated Bot** : tempo très rapide, commandes répétitives, faible diversité
-- **Script Kiddie** : reconnaissance bruyante + tentatives d'exploit "canned"
-- **Skilled Operator** : tempo lent et délibéré, diversité de commandes élevée, tente la persistance et l'exfiltration (profil type APT)
+ADAPT-X started as a small academic project, but I see it as an opportunity to build something much bigger.
 
-### 2. Cyber Kill Chain / MITRE ATT&CK
-Chaque commande est taguée par un classifieur à base de règles vers une étape :
-`recon → delivery → exploitation → installation → c2 → actions_on_objective`,
-avec une correspondance MITRE ATT&CK (TA0043, TA0001, TA0002, TA0003, TA0011, TA0010/TA0040).
+Publishing this prototype is my way of sharing the starting point, documenting the work, and giving the project room to grow.
 
-### 3. Prédiction de la prochaine étape
-Une **chaîne de Markov d'ordre 1** est entraînée sur l'ensemble des séquences d'étapes observées, produisant une matrice de transition `P(étape suivante | étape actuelle)`. C'est un choix volontairement **explicable** (vs. un LSTM boîte noire), adapté à un contexte SOC où l'analyste doit pouvoir justifier une alerte.
+There are many things I still want to explore, especially the transition towards an agent-based system that can coordinate different analysis tasks and assist with defensive investigations.
 
-### 4. Score de risque
-Somme pondérée transparente :
-```
-risk = 0.40 × progression_kill_chain
-     + 0.25 × sévérité_archétype
-     + 0.15 × diversité_tactiques
-     + 0.10 × persistance (sessions répétées)
-     + 0.10 × taux_de_succès_des_commandes
-```
-
----
-
-## Extensions possibles (roadmap)
-
-- Remplacer le classifieur de commandes par un modèle NLP fine-tuné (BERT léger) pour capturer les variantes obfusquées
-- Ajouter un modèle séquentiel (LSTM/Transformer) en complément de la chaîne de Markov pour capturer les dépendances d'ordre supérieur
-- Enrichissement GeoIP / ASN / réputation d'IP (threat intel feeds)
-- Ingestion temps réel via Kafka/Redis pour un déploiement SOC en production
-- Export STIX/TAXII pour l'interopérabilité avec d'autres plateformes de threat intel
-
----
-
-## Avertissement éthique
-
-Ce projet est destiné à des fins **défensives, éducatives et de portfolio en cybersécurité**. Il ne doit être utilisé que sur des logs collectés légalement (honeypots que vous opérez, environnements de test, données synthétiques). ADAPT-X ne contient aucun code d'exploitation, de scan actif ou d'attaque.
+**This is just the beginning :) **

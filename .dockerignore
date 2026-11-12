@@ -1,5 +1,53 @@
-venv/
+# Git
 .git/
+.gitignore
+
+# Python
 __pycache__/
-*.pyc
+*.py[cod]
+*.pyo
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Generated reports and datasets
+outputs/
+outputs_*/
+datasets/
+data/
+reports/
+*.jsonl
+
+# Tests cache
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Secrets
 .env
+.env.*
+!.env.example
+
+# IDE and OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Local backups
+*_backup.py
+README1.md
+# Local model files
+*.pkl
+*.pickle
+*.joblib
+*.model
+
+# Database and local data files
+*.sqlite3
+*.db
+*.parquet

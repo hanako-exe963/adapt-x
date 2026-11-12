@@ -86,5 +86,74 @@ def test_full_pipeline_end_to_end():
     assert list(result["risk_score"]) == sorted(result["risk_score"], reverse=True)
 
 
+def test_generator_is_reproducible():
+    first = sessions_to_records(generate_dataset(30, seed=42))
+    second = sessions_to_records(generate_dataset(30, seed=42))
+
+    assert first == second
+
+
+def test_attacker_identity_is_consistent():
+    sessions = generate_dataset(50, seed=42)
+
+    identities = {}
+
+    for session in sessions:
+        identity = (
+            session.src_ip,
+            session.archetype,
+        )
+
+        if session.attacker_id in identities:
+            assert identities[session.attacker_id] == identity
+        else:
+            identities[session.attacker_id] = identity
+
+
+def test_session_ids_are_unique():
+    sessions = generate_dataset(50, seed=42)
+    session_ids = [session.session_id for session in sessions]
+
+    assert len(session_ids) == len(set(session_ids))
+
+
+def test_dataset_has_exact_session_count():
+    for count in (1, 10, 50, 150):
+        sessions = generate_dataset(count, seed=42)
+        assert len(sessions) == count
+
+
+def test_invalid_session_count():
+    with pytest.raises(ValueError):
+        generate_dataset(0)
+
+
+def test_invalid_archetype():
+    from adaptx.data_generator import generate_session
+
+    with pytest.raises(ValueError):
+        generate_session("unknown")
+
+
+def test_generated_stages_respect_archetype_limits():
+    from adaptx.data_generator import (
+        ARCHETYPE_CONFIG,
+        STAGES,
+        generate_dataset,
+    )
+
+    sessions = generate_dataset(300, seed=42)
+
+    stage_indices = {
+        stage: index
+        for index, stage in enumerate(STAGES)
+    }
+
+    for session in sessions:
+        max_stage = ARCHETYPE_CONFIG[session.archetype]["max_stage"]
+
+        for event in session.events:
+            assert stage_indices[event["stage"]] <= max_stage
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-v"]))
